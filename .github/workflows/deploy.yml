@@ -1,0 +1,42 @@
+name: Deployment
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - staging
+      - production
+
+jobs:
+  push_to_ecr:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: whoan/docker-build-with-cache-action@v5
+        with:
+          username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          registry: ${{ vars.REGISTRY }}
+          dockerfile: Dockerfile
+          image_name: evf-fe-staging
+          image_tag: fe-latest,1.0.${{ github.run_number }}
+
+  deploy:
+    name: Deploy to EKS cluster
+    needs: push_to_ecr
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Restart EKS pod
+      uses: ianbelcher/eks-kubectl-action@master
+      with:
+        cluster_name: ${{ secrets.CLUSTER_NAME }}
+        args: rollout restart deployment/${{ vars.DEPLOYMENT_NAME }} -n ${{ vars.NAMESPACE }}
